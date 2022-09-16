@@ -1,0 +1,6 @@
+version: "3.9"
+
+services:
+  load-cohorts:
+    build: .
+    container_name: load-cohorts

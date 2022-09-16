@@ -1,0 +1,41 @@
+# Image 1: Java/Synthea Image
+FROM openjdk:8-jdk as generator
+# Get synthea 2.7.0 (which is the latest that ETL-Synthea supports) and generate simulated data for population of 1000 
+RUN mkdir /synthea && cd /synthea && \
+    wget https://github.com/synthetichealth/synthea/releases/download/v2.7.0/synthea-with-dependencies.jar && \
+    java -jar synthea-with-dependencies.jar -p 1000 --exporter.csv.export true
+
+# Image 2: R-image
+FROM rocker/verse:4.1.2
+# Copy generated data and put it in /synthea/output/csv
+COPY --from=generator /synthea/output/csv /synthea/output/csv
+
+# Install necessary tools
+RUN apt-get -y update && apt-get install -y \
+   default-jdk \
+   r-cran-rjava \
+   && apt-get clean \
+   && rm -rf /var/lib/apt/lists/
+
+# Install R dependencies
+RUN install2.r --error \
+    DatabaseConnector \
+    devtools \
+    readxl \
+    dplyr \
+    tidyr
+# Get the postgres JDBC driver and put it in /drivers
+RUN mkdir /drivers && cd /drivers && \
+    wget https://jdbc.postgresql.org/download/postgresql-42.3.1.jar
+
+# Add our script
+COPY a.R /a.R
+# Add our additional scripts and files 
+COPY ./R/CreateOMOPonFHIRTables.r /R/CreateOMOPonFHIRTables.r
+COPY ./additional_sql /additional_sql
+
+# Make directory so that we can debug the output
+RUN mkdir /output_logs
+
+# Run script to generate Tables and run ETL 
+CMD ["/bin/bash", "-c", "Rscript a.R 2>&1 | tee /output_logs/synthea_db_generator.log"]

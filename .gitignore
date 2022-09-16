@@ -1,0 +1,12 @@
+node_modules
+.vscode
+.DS_Store
+
+# Custom ignores 
+drivers
+cqf-ruler/hapi-cli
+cqf-ruler/vocabulary
+cqf-ruler/synthea
+etl-synthea_cdm/vocabulary
+etl-synthea_cdm/synthea
+etl-synthea_cdm/logs/synthea_db_generator.log

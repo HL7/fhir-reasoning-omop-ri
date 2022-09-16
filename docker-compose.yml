@@ -1,0 +1,106 @@
+version: "3.9"
+services:
+
+  # Starts CQF Ruler and loads it with SNOMED-CT, Loinc, and ICD-10 vocabularies
+  cqf-ruler:
+    build: cqf-ruler
+    container_name: cqf-ruler
+    ports:
+      - 8081:8080
+
+  cdm_postgres:
+    image: postgres:10
+    container_name: cdm_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: clipper
+    ports:
+      - 54320:5432
+    volumes:
+      - synthea_db:/var/lib/postgresql/data
+      - ./etl-synthea_cdm/synthea_cdm_init.sql:/docker-entrypoint-initdb.d/synthea_cdm_init.sql
+    shm_size: 256MB
+    restart: always
+
+  omoponfhir:
+    image: dphelan/omoponfhir-r4-v5.4
+    container_name: omoponfhir
+    environment:
+      - JDBC_URL=jdbc:postgresql://cdm_postgres:5432/OHDSI-CDM_V54?currentSchema=cdm_synthea
+      - JDBC_USERNAME=postgres
+      - JDBC_PASSWORD=clipper
+      - FHIR_READONLY=False
+      - MEDICATION_TYPE=code
+    ports: 
+      - 8082:8080
+    depends_on:
+      - cdm_postgres
+
+  webapi-postgres:
+    image: postgres:10
+    container_name: webapi-postgres
+    environment:
+      - POSTGRES_PASSWORD=changeMe
+    ports:
+      - 54321:5432
+    volumes:
+      - ./webapi_db/configure_webapi_db.sql:/docker-entrypoint-initdb.d/setup.sql  # Drop script in to wait for postgres to be fully up
+      - webapi_db_data:/var/lib/postgresql/data  # Save postgres data locally in webapi_db/postgres-data
+    shm_size: 256MB
+    restart: unless-stopped
+
+  webapi:
+    build: webapi  # Custom webapi with ability to wait for postgres db to be up
+    container_name: webapi
+    ports:
+      - 8080:8080     # Don't want this accessible, but Atlas is making an external request. Needs to be though if you want to be able to add a new source not from within the machine.
+    environment:
+      - POSTGRES_PASSWORD=changeMe   # Password for webapi-postgres. Used by wait-for-postgres.sh
+      # todo document these environment variables more.
+      - env=webapi-postgresql
+      - security_enabled=false
+      - security_origin=*
+      - datasource_driverClassName=org.postgresql.Driver
+      - datasource_url=jdbc:postgresql://webapi-postgres:5432/OHDSI
+      - datasource.cdm.schema=cdm
+      - datasource.ohdsi.schema=ohdsi
+      - datasource_username=ohdsi_admin_user
+      - datasource_password=admin1
+      - spring.jpa.properties.hibernate.default_schema=ohdsi
+      - spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+      - spring.batch.repository.tableprefix=ohdsi.BATCH_
+      - flyway_datasource_driverClassName=org.postgresql.Driver
+      - flyway_datasource_url=jdbc:postgresql://webapi-postgres:5432/OHDSI
+      - flyway_schemas=ohdsi
+      - flyway.placeholders.ohdsiSchema=ohdsi
+      - flyway_datasource_username=ohdsi_admin_user
+      - flyway_datasource_password=admin1
+      - flyway.locations=classpath:db/migration/postgresql
+    volumes:
+      - ./webapi/wait-for-postgres.sh:/usr/local/tomcat/wait-for-postgres.sh # Drop script in to wait for postgres to be fully up
+    depends_on:
+      - webapi-postgres
+    command: ["./wait-for-postgres.sh", "webapi-postgres", "catalina.sh", "run"]
+    restart: always
+
+  atlas:
+    image: ohdsi/atlas:2.10.1
+    container_name: atlas
+    ports: 
+      - 80:8080
+    volumes:
+      - ./atlas/default.conf:/etc/nginx/default.conf # Fix for redirect https://github.com/OHDSI/Atlas/issues/2641
+    environment:
+      # Must be making external request docker service name doesnt work here. Specify your hosts hostname
+      - WEBAPI_URL=http://localhost:8080/WebAPI    
+    depends_on:
+      - webapi
+    restart: unless-stopped
+
+
+volumes:
+  synthea_db:
+  webapi_db_data:
+    external: false
+  rstudio_data:
+    external: false

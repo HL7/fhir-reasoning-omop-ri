@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  synthea-cdm-etl:
+    build: .
+    container_name: synthea-cdm-etl
+    volumes:
+      - ./vocabulary:/vocabulary
+      - ./synthea:/synthea

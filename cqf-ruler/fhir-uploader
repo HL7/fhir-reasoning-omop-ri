@@ -1,0 +1,98 @@
+#!/bin/bash
+
+usage="
+usage: $(basename "$0") command [-h] [-s] [-r] arguments...
+This utility does something
+Options:
+    -h
+        Displays help menu.
+    -s [server baseUrl]
+        Allows you to specify the baseURL of the FHIR server to access.
+    -r
+        Recursively processes any provided directories.
+"
+
+command=$1
+shift 1
+
+if [[ $command != "upload" ]] ; then
+  echo "No $command only upload"
+  exit 1
+fi
+
+while getopts ':hrs:' option;
+do
+  case "$option" in
+    h)
+       echo -e "$usage"
+       exit 0
+       ;;
+    r)
+       recursive=true;
+       ;;
+    s)
+       server=$OPTARG
+       ;;
+
+   \?) printf "illegal option: -%s\n" "$OPTARG" 1>&2
+       echo "$usage" 1>&2
+       exit 1
+       ;;
+    : )
+      echo "Invalid option: $OPTARG requires an argument" 1>&2
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if [[ $server == "" ]] ; then
+  echo No server provided
+  cat -n ~/.fhir_servers
+  echo Choose a server, or 0 or "exit" to cancel
+  read serverchoice
+
+  if [[ $serverchoice == "0" || $serverchoice == "exit" ]] ; then
+    exit 1
+  fi
+  server=$(tail -n+$serverchoice ~/.fhir_servers | head -n1)
+else
+  
+
+  if [[ -z $(grep -x -s "$server" ~/.fhir_servers) ]] ; then 
+    echo Adding $server to favorite servers
+    echo $server >> ~/.fhir_servers
+  fi
+
+fi
+
+echo Using Server: $server
+
+upload () {
+  echo "Uploading $1"
+  curl -d @$1 --progress-bar --output /dev/null --show-error --fail -H 'Content-Type: application/json' $server
+}
+
+files=$*
+for file in $files ; do
+  if [[ -d $file ]]; then
+
+    if [[ "$recursive" != true ]] ; then
+      echo "$1 is a directory"
+    else
+      for f in $(find $file -name "*.json") ; do
+        upload $f
+      done
+    fi
+
+  elif [[ -f $file ]]; then
+
+    if [[ ${file: -5} != ".json" ]] ; then
+      echo "$file is not JSON"
+    else 
+      upload $file
+    fi
+    
+  else
+    echo "$file is not valid"
+  fi
+done
