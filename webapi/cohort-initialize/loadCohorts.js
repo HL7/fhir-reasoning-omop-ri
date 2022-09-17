@@ -25,7 +25,7 @@ async function getCohort(fileName) {
         // expressionType: SIMPLE_EXPRESSION
         expression: cohort, 
       }
-      axios.post('http://localhost:8080/WebAPI/cohortdefinition', payload)
+      axios.post('http://host.docker.internal:8080/WebAPI/cohortdefinition', payload)
       .then(function (response) {
         console.log(response);
       })
